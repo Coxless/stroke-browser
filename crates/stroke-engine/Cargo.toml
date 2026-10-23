@@ -1,0 +1,13 @@
+[package]
+name = "stroke-engine"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+euclid.workspace = true
+glow.workspace = true
+log.workspace = true
+servo.workspace = true
+url.workspace = true
+winit.workspace = true

@@ -13,6 +13,10 @@ if python3 --version >/dev/null 2>&1; then ok "$(python3 --version)"; else ng "p
 if python3 -c 'import tkinter' 2>/dev/null; then ok "tkinter"; else ng "tkinter がない（python3-tk）"; fi
 if command -v cargo >/dev/null; then ok "$(cargo --version)"; else ng "cargo がない"; fi
 if command -v rustc >/dev/null; then ok "$(rustc --version)"; else ng "rustc がない"; fi
+if command -v clang >/dev/null; then ok "$(clang --version | head -n 1)"; else ng "clang がない（Servo のビルドに要る）"; fi
+if command -v cmake >/dev/null; then ok "$(cmake --version | head -n 1)"; else ng "cmake がない（Servo のビルドに要る）"; fi
+servo_libs="freetype2 harfbuzz egl glesv2 x11 dbus-1 libudev"
+if pkg-config --exists $servo_libs 2>/dev/null; then ok "Servo の依存ライブラリ"; else ng "Servo の依存ライブラリが足りない（pkg-config --exists $servo_libs）"; fi
 if fc-list :lang=ja 2>/dev/null | grep -q .; then ok "日本語フォント"; else ng "日本語フォントがない（fonts-noto-cjk）"; fi
 
 if [ -n "${WAYLAND_DISPLAY:-}" ] || [ -n "${DISPLAY:-}" ]; then

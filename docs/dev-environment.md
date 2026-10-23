@@ -11,7 +11,7 @@ Ubuntu では Canonical Workshop、Windows では WSL container を使います�
 | 画面の表示 | desktop インターフェースで、ホストの表示につなぐ | WSLg を渡す（要確認） |
 | 位置づけ | 主な開発環境 | 後回し。動作確認は Ubuntu で行う |
 
-入るもの（Phase 0 の時点）：Python 3、tkinter、Rust（rustup）、日本語フォント（Noto CJK）、git、ビルドの基本道具。Servo のビルドに要るものは、Phase 1 で Servo の文書を確かめてから足します。
+入るもの：Python 3、tkinter、Rust（rustup）、日本語フォント（Noto CJK）、git、ビルドの基本道具（Phase 0）、Servo のビルドに要るもの（Phase 1、下の「Servo のビルドに要るもの」）。
 
 ## Ubuntu：Canonical Workshop
 
@@ -64,6 +64,46 @@ workshop shell               # 中でシェルを開く
 - `.workshop/stroke-dev/hooks/setup-base`：launch と refresh のときに root で動き、apt でパッケージを入れる
 - `.workshop.lock`：Workshop がプロジェクトごとに作る。リポジトリに入れない（`.gitignore` 済み）
 
+## Servo のビルドに要るもの
+
+Phase 1 で足しました。一覧は Servo の [`python/servo/platform/linux_packages/apt/apt_common.txt`](https://github.com/servo/servo/blob/v0.1.3/python/servo/platform/linux_packages/apt/apt_common.txt)（v0.1.3。`./mach bootstrap` が入れるもの）をもとにし、次のものを除いています。
+
+- GStreamer の一式（`gstreamer1.0-*`、`libgstreamer-*-dev`、`libges-1.0-dev`、`libgstrtspserver-1.0-dev`）：`servo` crate の `media-gstreamer` 機能を使わないので要らない。動画と音声を扱うときに足す
+- `ccache`：なくてもビルドできる
+- `curl`、`git`、`build-essential`、`ca-certificates`：Phase 0 の分で入っている
+
+足したものは `.workshop/stroke-dev/hooks/setup-base` と `container/Containerfile` の両方に同じ一覧で書いています。片方を変えたら、もう片方も変えます。`scripts/check-env.sh` は clang、cmake、主なライブラリ（pkg-config で見えるか）を確かめます。
+
+SpiderMonkey（`mozjs_sys`）は、ビルド済みのものを [servo/mozjs の Releases](https://github.com/servo/mozjs/releases) から落としてくるので、手元ではビルドしません。ネットにつながらない環境では `MOZJS_FROM_SOURCE=1` でソースからビルドします（時間がかかります）。
+
+## Stroke をビルドして動かす
+
+リポジトリの直下で（Workshop なら `workshop shell` の中の `/project` で）実行します。
+
+```sh
+cargo build                      # 初回は Servo の全部をビルドするので時間がかかる
+cargo test                       # 外枠とエンジンの境界の単体テスト
+cargo run -p stroke -- servo.org # URL を渡して起動する。省くと https://servo.org/ を開く
+```
+
+目安（2026-10-23、4コア・メモリ 15GB のクラウドの環境で測った）：初回の `cargo build` は約15分、`target/` は約4.5GB。2回目からは自分の crate だけをビルドするので数秒。メモリは 15GB で足りた。
+
+起動すると、ウィンドウの下に読み込みの状態、URL、仮のキーの一覧が出ます。キーの一覧は `docs/decisions.md` の「Phase 1 の仮のキー」にあります。`RUST_LOG=stroke=debug` を付けると、押したキーの行き先（外枠の命令か、ページか）とエンジンからの通知がログに出ます。
+
+### servoshell（お手本）を動かす
+
+`crates/stroke` は servoshell と同じ作りなので、動きを比べたいときは servoshell を動かします。servoshell は crates.io にないので、Servo のリポジトリを取ってきて `./mach` でビルドします。LTS の 0.1.4 には git のタグがないので、一番近い `v0.1.3` を使います。
+
+```sh
+git clone --depth 1 --branch v0.1.3 https://github.com/servo/servo.git ~/servo
+cd ~/servo
+curl -LsSf https://astral.sh/uv/install.sh | sh   # mach が使う。入っていなければ
+./mach build --release
+./mach run --release https://servo.org/
+```
+
+`./mach bootstrap` は apt で GStreamer なども入れます。上の一覧で足りない分を入れたいときだけ使います。Servo のリポジトリはこのリポジトリの外（`~/servo`）に置きます。
+
 ## Windows：WSL container
 
 ### 必要なもの
@@ -93,6 +133,7 @@ CPU の数とメモリの上限は、WSL container の設定（`session.cpuCount
 - [ ] `-v` でのフォルダのマウントが、この書き方（`C:/...:/project`）で通るか
 - [ ] **GUI**：`-Gui` は、WSLg の公式の例（Docker で `/mnt/wslg` と `/tmp/.X11-unix` を渡す）を `wslc` に当てはめたもの。`wslc` のコンテナから WSLg が見えるかは分からない
 - [ ] 公式のチュートリアルは、ファイルを WSL 側に置くことを勧めている。Windows 側に置いて遅すぎないか
+- [ ] Servo の初回ビルドは約15分かかる（Ubuntu の目安）。成果物（`/home/dev/target`）はコンテナと一緒に消えるので、毎回やり直しになる。名前付きのボリュームなどで残せるか
 
 GUI が使えなかった場合、Phase 0 のトイブラウザは Windows に直接入れた Python で動かします（tkinter は Windows の Python に入っています）。コンテナはビルドとテストに使います。
 
