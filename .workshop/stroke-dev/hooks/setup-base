@@ -1,0 +1,15 @@
+#!/bin/bash
+# root で実行される。Phase 0（Python のトイブラウザ）に要るものだけを入れる。
+# Servo のビルドに要るパッケージは、Phase 1 で Servo の文書を確かめてから足す。
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y --no-install-recommends \
+  ca-certificates \
+  curl \
+  git \
+  build-essential \
+  pkg-config \
+  python3 \
+  python3-tk \
+  fontconfig \
+  fonts-noto-cjk

@@ -1,0 +1,9 @@
+# このリポジトリ専用の SDK。ブラウザを画面に出すため、ホストの表示と GPU をつなぐ
+name: stroke-dev
+summary: System packages and host display for Stroke browser development
+base: ubuntu@24.04
+plugs:
+  desktop:
+    interface: desktop
+  gpu:
+    interface: gpu

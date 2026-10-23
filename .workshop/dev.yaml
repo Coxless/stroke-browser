@@ -1,0 +1,11 @@
+# Ubuntu 用の開発環境（Canonical Workshop）。手順は docs/dev-environment.md
+name: dev
+base: ubuntu@24.04
+sdks:
+  - name: rust
+    channel: latest/stable
+  # .workshop/stroke-dev/ にある、このリポジトリ専用の SDK
+  - name: project-stroke-dev
+actions:
+  check: |
+    bash /project/scripts/check-env.sh "$@"

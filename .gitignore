@@ -1,0 +1,5 @@
+# Workshop がプロジェクトごとに作る。リポジトリに入れない（公式の文書の指示）
+.workshop.lock
+
+/target/
+__pycache__/

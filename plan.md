@@ -8,6 +8,7 @@
 
 ## 全体方針
 
+- **最初に開発環境を整える**（準備）。Ubuntu は Canonical Workshop、Windows は WSL container を使い、開発に要るものをコンテナに閉じ込める
 - **Phase 0 は並行して進める**。Phase 1〜6 は順番に進める。Phase 5 は Phase 2 が終われば、コードを読む作業だけ先に始めてよい
 - **キーの経路を常に見えるようにする**。押したキーがどのモードで何になったか（ブラウザの命令か、ページに渡したか）を表示するデバッグ表示を Phase 2 で作り、最後まで残す。学習の主軸である「キーを押してからページに届くまで」を、毎回目で確かめるため
 - **エンジンは薄い層の向こうに置く**。外枠のコードから Servo の型を直接触らず、`Engine` trait 経由で使う。差し替えの余地を残すと同時に、エンジンとの境界を自分で言葉にするため
@@ -20,6 +21,10 @@
 stroke-browser/
 ├── concept.md
 ├── plan.md
+├── docs/                 # 開発環境の手順、決めたこと、調べたこと
+├── .workshop/            # 準備：Ubuntu の開発環境（Canonical Workshop）
+├── container/            # 準備：Windows の開発環境（WSL container）
+├── scripts/              # 環境の確認スクリプトなど
 ├── toy/                  # Phase 0：Python のトイブラウザ
 ├── fixtures/             # 確認用のローカル HTML（キーを奪うページなど）
 ├── Cargo.toml            # Rust workspace
@@ -37,13 +42,43 @@ crate は必要になった Phase で作ります。最初から全部は作り�
 
 | Phase | 内容 | 依存 | 完了条件 |
 | --- | --- | --- | --- |
-| 0 | トイブラウザ（Python） | なし（並行） | 自作のブラウザで簡単なページが表示できる |
-| 1 | 外枠 | なし | キーだけで URL を開いて読める |
+| 準備 | ローカル開発環境 | なし | 両方の環境で確認スクリプトが通る |
+| 0 | トイブラウザ（Python） | 準備（並行） | 自作のブラウザで簡単なページが表示できる |
+| 1 | 外枠 | 準備 | キーだけで URL を開いて読める |
 | 2 | キーの経路とモード | 1 | ページにキーを奪われない |
 | 3 | ヒント | 2 | リンクと入力欄をキーで選べる |
 | 4 | タブと履歴 | 3 | タブの操作がマウスなしで済む |
 | 5 | エンジンの中へ | 2（読む作業）、4 | エンジン側の変更で機能を1つ作れた |
 | 6 | 仕上げ | 4、5 | 1週間マウスなしで過ごせる |
+
+---
+
+## 準備：ローカル開発環境
+
+**目的**：Phase 0 から先で使う開発環境を、手元の OS を汚さずに作る。Ubuntu と Windows で入るものを揃え、どちらでも同じ手順で確かめられるようにする。
+
+手順の詳細は [docs/dev-environment.md](docs/dev-environment.md) にまとめています。
+
+| | Ubuntu（主） | Windows（後回し） |
+| --- | --- | --- |
+| 使うもの | Canonical Workshop | WSL container（`wslc`） |
+| 定義 | `.workshop/dev.yaml`、`.workshop/stroke-dev/` | `container/Containerfile` |
+| 操作 | `workshop launch` / `shell` / `run -- check` | `scripts/wslc-dev.ps1 build` / `shell` / `check` |
+| 画面の表示 | desktop・gpu インターフェースでホストにつなぐ | WSLg を渡す（要確認） |
+
+### 作業
+
+- [x] Workshop の定義を作る：Ubuntu 24.04 ＋ Rust SDK ＋ このリポジトリ専用の SDK（apt のパッケージ、desktop・gpu のつなぎ）
+- [x] WSL container の Containerfile と、操作用の PowerShell スクリプトを作る
+- [x] 両方で使う確認スクリプト `scripts/check-env.sh` を作る（Python、tkinter、Rust、日本語フォント、表示）
+- [ ] Ubuntu：`workshop launch` → `workshop run -- check --gui` が通る
+- [ ] Windows：`wslc-dev.ps1 build` → `wslc-dev.ps1 check -Gui` を試し、`docs/dev-environment.md` の「まだ確かめていないこと」を埋める
+- [ ] エディタから環境の中の道具（rust-analyzer など）を使う方法を決める
+
+### 完了条件
+
+- Ubuntu の Workshop で、確認スクリプトが窓の表示まで含めて通る
+- Windows の WSL container で、確認スクリプトが通る。GUI が使えない場合は、その結果と代わりの方法が `docs/dev-environment.md` に書かれている
 
 ---
 
@@ -74,7 +109,7 @@ crate は必要になった Phase で作ります。最初から全部は作り�
 ### 作業
 
 1. **環境構築**
-   - [ ] Servo の文書に従って、Ubuntu にビルドに必要なパッケージを入れる
+   - [ ] Servo の文書を確かめ、ビルドに必要なパッケージを開発環境の定義（`.workshop/stroke-dev/hooks/setup-base` と `container/Containerfile`）に足す
    - [ ] servoshell をビルドして動かし、手元で Servo が動くことを確かめる
 2. **日本語入力の確認**（最初に行う）
    - [ ] servoshell で、入力欄に IME（fcitx5 または IBus）で日本語を入力できるか試す
@@ -276,6 +311,8 @@ crate は必要になった Phase で作ります。最初から全部は作り�
 
 | 危険 | 対策 |
 | --- | --- |
+| Workshop と WSL container は出てから日が浅く、仕様が変わりやすい | 定義は小さく保ち、手順は公式の文書へのリンクとともに `docs/dev-environment.md` に残す |
+| WSL container から WSLg の表示が使えない | ビルドとテストはコンテナで行い、画面の確認は Ubuntu か Windows に直接入れた Python で行う |
 | Servo のビルドが重く、試行に時間がかかる | servoshell で先に確かめてから外枠に移す。依存の版を固定し、上げるのは区切りのよい時だけにする |
 | Servo の API が版ごとに変わる | LTS 版を使う。Servo の型は `stroke-engine` の中に閉じ込め、変更の影響をそこで止める |
 | 日本語入力が使えない | Phase 1 の最初に確かめる。使えなければ外枠で IME を受ける作業を Phase 2 に足す |

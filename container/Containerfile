@@ -1,0 +1,27 @@
+# Windows 用の開発環境（WSL container）。手順は docs/dev-environment.md
+# .workshop/ の Ubuntu 環境と、入るものを揃えている。
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      ca-certificates \
+      curl \
+      git \
+      build-essential \
+      pkg-config \
+      python3 \
+      python3-tk \
+      fontconfig \
+      fonts-noto-cjk \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN useradd --create-home --shell /bin/bash dev
+USER dev
+ENV PATH=/home/dev/.cargo/bin:$PATH
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+
+# ソースは Windows 側から /project に渡す。ビルドの成果物はコンテナの中に置く
+ENV CARGO_TARGET_DIR=/home/dev/target
+WORKDIR /project
+CMD ["bash"]
