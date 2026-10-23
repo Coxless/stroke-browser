@@ -71,7 +71,8 @@ pub trait Engine {
     fn send_key(&self, event: &KeyEvent, modifiers: ModifiersState);
     /// IME の変換中の文字や確定した文字をページに渡す
     fn send_ime(&self, event: &Ime);
-    /// ページで JS を実行する。結果は後から `callback` に渡す
+    /// ページで JS を実行する。結果は後から `callback` に渡す。
+    /// いまはページの JS を止めているので、必ず失敗する（`vendor/README.md`）
     fn evaluate_script(&self, script: &str, callback: Box<dyn FnOnce(ScriptResult)>);
 
     // --- 今の状態 ---

@@ -66,3 +66,28 @@
 **決めたこと**：`Cargo.toml` の `[profile.dev.package."*"]` で、依存の crate を `opt-level = 2`、デバッグ情報なしでビルドする。自分の crate は通常のデバッグビルドのまま。
 
 **理由**：最適化なしの Servo は遅すぎて、ページを読むのにも使えない。依存だけ最適化しておけば、自分のコードの変更は速くビルドでき、デバッガでも追える。デバッグ情報を外すのは、ディスクとリンクの時間を抑えるため。
+
+## 2026-10-23 ページの JS を動かさない（Phase 1）
+
+**決めたこと**：当面、ページの JS は一切動かさない。Servo 0.1.4 には JS を止める設定がないので、`servo-script` crate に手を入れた版を `vendor/servo-script/` に置き、`[patch.crates-io]` で使う。直した内容と確かめたことは [vendor/README.md](../vendor/README.md)。
+
+**理由**
+
+- 安全のため。ブラウザへの攻撃の多くは JS エンジン（JIT、WebAssembly、DOM との境目）を通る。Servo はまだ若く、Stroke は安全のための修正を自分で追いかける体制もないので、攻撃を受ける面そのものを減らす
+- 止め方は、HTML の仕様にある「サンドボックスの文書ではスクリプトを動かさない」仕組みにした。Servo がすでに持っていて、CSP の `sandbox` で使われている道筋なので、自前で判定を足すより漏れが少ない
+
+**比べたもの**
+
+| | 採った | 採らなかった理由 |
+| --- | --- | --- |
+| servo-script に手を入れ、すべての文書にサンドボックスの印を付ける | ○ | — |
+| `WebViewDelegate::load_web_resource` で応答を横取りし、`Content-Security-Policy: sandbox` を足す | | 横取りすると、応答を外枠が全部作り直すことになる（Cookie、リダイレクト、TLS を自前で扱う）。かえって危ない |
+| JIT と WebAssembly だけを切る（`js_jit` 機能や `js_*` の設定） | | JS そのものは動く。止めたいのは JS 全体 |
+| `Document::scripting_enabled` を常に偽にする | | `javascript:` の URL などで assert に当たって落ちる道が残る。仕様の道筋（サンドボックス）に乗るほうが安全 |
+
+**影響**
+
+- JS を使うサイトは、表示が崩れたり、ボタンが効かなくなったりする。困ったサイトは、Phase 6 の「既存のブラウザに送る」で開く
+- 外枠からの JS（`Engine::evaluate_script`）も動かない。Phase 3 のヒントは注入した JS で要素を集める予定だったので、Phase 3 に入る前に決め直す。候補は (1) 外枠の JS だけを許すように servo-script をさらに直す、(2) JS を使わずにエンジン側で要素を集める（Phase 5 の先取り）
+- `servo-script` を手元でビルドするので、初回のビルドが少し延び、`servo-script` の警告が4つ出る（Servo の元のコードのもの）
+- Servo の版を上げるときは、差分を当て直す（vendor/README.md の「版を上げるとき」）

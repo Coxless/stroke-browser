@@ -7158,8 +7158,6 @@ dependencies = [
 [[package]]
 name = "servo-script"
 version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43d7b41f129a969c0bdbd6a4daf2a33513c6d1487a99474304aa31cf040cfe74"
 dependencies = [
  "aes",
  "aes-gcm",

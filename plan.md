@@ -25,6 +25,7 @@ stroke-browser/
 ├── .workshop/            # 準備：Ubuntu の開発環境（Canonical Workshop）
 ├── container/            # 準備：Windows の開発環境（WSL container）
 ├── scripts/              # 環境の確認スクリプトなど
+├── vendor/               # 手を入れた Servo の crate（[patch.crates-io] で使う）
 ├── toy/                  # Phase 0：Python のトイブラウザ
 ├── fixtures/             # 確認用のローカル HTML（キーを奪うページなど）
 ├── Cargo.toml            # Rust workspace
@@ -191,6 +192,8 @@ crate は必要になった Phase で作ります。最初から全部は作り�
 
 **目的**：クリックできる要素にラベルを出し、ラベルを打って選べるようにする。
 
+> 2026-10-23：安全のため、ページの JS を止めた（`docs/decisions.md`、`vendor/README.md`）。外枠からの JS も動かないので、下の「要素を集める注入スクリプト」は、着手する前にやり方を決め直す。
+
 ### 作業
 
 1. **要素を集める注入スクリプト（`crates/stroke-inject`）**
@@ -309,6 +312,7 @@ crate は必要になった Phase で作ります。最初から全部は作り�
 | キー配置 | Phase 2 の作業1 | 今使っている Firefox 拡張の配置を土台にする |
 | Ubuntu の日本語入力 | Phase 1 の作業2（最初に確認） | — |
 | 広告ブロック | Phase 6 | エンジンの読み込みを横取りする層＋ adblock-rust |
+| ヒントの要素の集め方（JS を止めたため） | Phase 3 に入る前 | — |
 
 決めたことは `docs/decisions.md` に、日付と理由を添えて残します。
 

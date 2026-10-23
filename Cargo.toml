@@ -24,3 +24,7 @@ winit = "0.30.13"
 [profile.dev.package."*"]
 opt-level = 2
 debug = false
+
+# ページの JS を動かさないように直した servo-script。直した内容と理由は vendor/README.md
+[patch.crates-io]
+servo-script = { path = "vendor/servo-script" }
