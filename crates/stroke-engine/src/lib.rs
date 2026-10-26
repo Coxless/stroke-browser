@@ -5,6 +5,7 @@
 //! 「エンジンからの通知」（[`EngineEvent`]）の2つに分けている。
 
 mod keys;
+pub mod policy;
 mod servo_engine;
 
 use std::sync::Arc;
@@ -50,6 +51,11 @@ pub enum EngineEvent {
     },
     /// 入力欄からフォーカスが外れた
     InputMethodHidden,
+    /// ページの読み込みを、規則（[`policy`]）に合わないので止めた
+    RequestBlocked {
+        url: Url,
+        reason: policy::Blocked,
+    },
 }
 
 /// JS を実行した結果。文字列にして返す（型を細かく扱うのは必要になってから）。

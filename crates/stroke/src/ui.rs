@@ -31,6 +31,8 @@ pub struct Ui {
     select_location: bool,
     /// ページを表示する領域。単位は物理ピクセル、原点はウィンドウの左上
     view_rect: PixelRect,
+    /// 状態表示に出すお知らせ（読み込みを止めた理由など）
+    notice: Option<String>,
 }
 
 const LOCATION_ID: &str = "location";
@@ -56,7 +58,12 @@ impl Ui {
                 width: 0,
                 height: 0,
             },
+            notice: None,
         }
+    }
+
+    pub fn set_notice(&mut self, notice: Option<String>) {
+        self.notice = notice;
     }
 
     pub fn egui_ctx(&self) -> &egui::Context {
@@ -89,9 +96,10 @@ impl Ui {
             location,
             select_location,
             view_rect,
+            notice,
         } = self;
         egui.run(window, |ctx| {
-            status_bar(ctx, engine);
+            status_bar(ctx, engine, notice.as_deref());
             if let Some(text) = location {
                 location_bar(ctx, text, select_location, &mut actions);
             }
@@ -150,7 +158,7 @@ impl Drop for Ui {
     }
 }
 
-fn status_bar(ctx: &egui::Context, engine: &dyn Engine) {
+fn status_bar(ctx: &egui::Context, engine: &dyn Engine, notice: Option<&str>) {
     TopBottomPanel::bottom("status").show(ctx, |ui| {
         ui.horizontal(|ui| {
             let state = match engine.load_state() {
@@ -160,6 +168,10 @@ fn status_bar(ctx: &egui::Context, engine: &dyn Engine) {
             };
             ui.label(state);
             ui.separator();
+            if let Some(notice) = notice {
+                ui.colored_label(ui.visuals().warn_fg_color, notice);
+                ui.separator();
+            }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.weak(shortcuts::HELP);
                 ui.separator();

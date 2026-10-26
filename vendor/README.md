@@ -5,6 +5,7 @@
 | ディレクトリ | 元 | 直した内容 | 差分 |
 | --- | --- | --- | --- |
 | `servo-script/` | crates.io の `servo-script` 0.1.4（Servo の `components/script`） | ページの JS を動かさない | `servo-script.patch` |
+| `servo-net/` | crates.io の `servo-net` 0.1.4（Servo の `components/net`） | 読み込みを確かめる外枠に、リダイレクト先の URL を渡す | `servo-net.patch` |
 
 直した箇所には、検索しやすいように `STROKE PATCH` と書いてあります。
 
@@ -32,19 +33,31 @@ Xvfb の上で、次のページを開いて確かめました。どれも動か
 - 外部のスクリプト（`<script src>`）は、実行はされないが、ダウンロードはされる（先読みのため）
 - 外枠からの JS（`Engine::evaluate_script`）も動かない。Phase 3 のヒントは注入した JS で要素を集める予定なので、そのときに決め直す（`docs/decisions.md`）
 
+## servo-net：リダイレクト先の URL を外枠に渡す
+
+Stroke は、読み込みのたびに Servo が呼ぶ `WebViewDelegate::load_web_resource` で、開いてよい URL か（`crates/stroke-engine/src/policy.rs`）を確かめています。ところが Servo 0.1.4 は、ここに `request.url()`（最初の URL）を渡しているため、リダイレクトしたときもリダイレクト前の URL しか見えません。`https://` のページから `http://` へリダイレクトされても止められませんでした。
+
+`request_interceptor.rs` の1行を `request.current_url()`（今の URL）に変えています。Servo の不具合なので、直した版が出たらこの差分は要らなくなります。
+
+### 確かめたこと（2026-10-26）
+
+手元のサーバーから `http://example.com/` へ 302 でリダイレクトさせ、直す前は外枠の確かめが最初の URL（手元のサーバー）しか見ていないこと、直した後はリダイレクト先を見て止めることを、ログで確かめました。
+
 ## 版を上げるとき
 
 Servo の LTS を上げるときは、新しい版の crate を取ってきて、差分を当て直します。
 
 ```sh
 v=0.1.5   # 新しい版
-rm -rf vendor/servo-script
-mkdir -p vendor/servo-script
-curl -sSfL "https://static.crates.io/crates/servo-script/servo-script-$v.crate" \
-  | tar -xz -C vendor/servo-script --strip-components=1
-patch -d vendor/servo-script -p1 < vendor/servo-script.patch
+for name in servo-script servo-net; do
+  rm -rf "vendor/$name"
+  mkdir -p "vendor/$name"
+  curl -sSfL "https://static.crates.io/crates/$name/$name-$v.crate" \
+    | tar -xz -C "vendor/$name" --strip-components=1
+  patch -d "vendor/$name" -p1 < "vendor/$name.patch"
+done
 ```
 
-差分が当たらなければ、`STROKE PATCH` の2か所を手で直し、差分を作り直します（`diff -ru 元の crate vendor/servo-script > vendor/servo-script.patch`、パスは `a/` と `b/` に揃える）。
+差分が当たらなければ、`STROKE PATCH` の箇所を手で直し、差分を作り直します（`diff -ru 元の crate vendor/<名前> > vendor/<名前>.patch`、パスは `a/` と `b/` に揃える）。servo-net の不具合が Servo 側で直っていれば、servo-net はやめて crates.io の版に戻します。
 
 ビルドすると、servo-script の警告が4つ出ます。どれも Servo の元のコードのもので、crates.io から使っていたときは隠れていただけです。

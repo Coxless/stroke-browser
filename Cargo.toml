@@ -15,6 +15,7 @@ egui-winit = { version = "0.33.3", default-features = false, features = ["clipbo
 egui_glow = { version = "0.33.3", features = ["winit"] }
 euclid = "0.22"
 glow = "0.16"
+http = "1.4"
 log = "0.4"
 rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs"] }
 url = "2.5"
@@ -25,6 +26,7 @@ winit = "0.30.13"
 opt-level = 2
 debug = false
 
-# ページの JS を動かさないように直した servo-script。直した内容と理由は vendor/README.md
+# 手を入れた Servo の crate。直した内容と理由は vendor/README.md
 [patch.crates-io]
 servo-script = { path = "vendor/servo-script" }
+servo-net = { path = "vendor/servo-net" }

@@ -16,6 +16,7 @@ use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
 use winit::keyboard::ModifiersState;
 use winit::window::{Window, WindowId};
 
+use crate::location::Rejected;
 use crate::shortcuts::Command;
 use crate::ui::{Ui, UiAction};
 
@@ -26,10 +27,17 @@ fn main() {
         .install_default()
         .expect("TLS の暗号の実装を入れられない");
 
-    let url = std::env::args()
+    let url = match std::env::args()
         .nth(1)
-        .and_then(|input| location::resolve(&input))
-        .unwrap_or_else(|| Url::parse(START_URL).expect("START_URL は正しい URL"));
+        .map(|input| location::resolve(&input))
+    {
+        Some(Ok(url)) => url,
+        Some(Err(Rejected::Blocked(reason))) => {
+            eprintln!("開けない URL: {}", reason.message());
+            std::process::exit(2);
+        }
+        None | Some(Err(Rejected::Empty)) => Url::parse(START_URL).expect("START_URL は正しい URL"),
+    };
 
     let event_loop = EventLoop::<AppEvent>::with_user_event()
         .build()
@@ -68,6 +76,8 @@ struct Running {
     modifiers: ModifiersState,
     /// ページの入力欄が IME を求めているときの、入力欄の位置（ページの表示領域が原点）
     page_ime_area: Option<PixelRect>,
+    /// 最後に止めたページの URL。別の URL に移ったら、止めたというお知らせを消す
+    blocked_url: Option<Url>,
 }
 
 impl ApplicationHandler<AppEvent> for App {
@@ -106,6 +116,7 @@ impl ApplicationHandler<AppEvent> for App {
             window,
             modifiers: ModifiersState::empty(),
             page_ime_area: None,
+            blocked_url: None,
         });
     }
 
@@ -145,9 +156,19 @@ impl Running {
                 log::debug!("エンジン {event:?}");
             }
             match event {
-                EngineEvent::NewFrameReady
-                | EngineEvent::UrlChanged(_)
-                | EngineEvent::LoadStateChanged(_) => self.window.request_redraw(),
+                EngineEvent::NewFrameReady | EngineEvent::LoadStateChanged(_) => {
+                    self.window.request_redraw()
+                }
+                EngineEvent::UrlChanged(url) => {
+                    if self
+                        .blocked_url
+                        .take_if(|blocked| *blocked != url)
+                        .is_some()
+                    {
+                        self.ui.set_notice(None);
+                    }
+                    self.window.request_redraw();
+                }
                 EngineEvent::TitleChanged(title) => {
                     let title = match title {
                         Some(title) if !title.is_empty() => format!("{title} — Stroke"),
@@ -162,6 +183,12 @@ impl Running {
                 EngineEvent::InputMethodHidden => {
                     self.page_ime_area = None;
                     self.apply_page_ime();
+                }
+                EngineEvent::RequestBlocked { url, reason } => {
+                    self.ui
+                        .set_notice(Some(format!("開かなかった（{}）: {url}", reason.message())));
+                    self.blocked_url = Some(url);
+                    self.window.request_redraw();
                 }
             }
         }
@@ -245,10 +272,19 @@ impl Running {
         self.engine.present();
 
         for action in actions {
-            if let UiAction::Go(input) = action
-                && let Some(url) = location::resolve(&input)
-            {
-                self.engine.load(url);
+            if let UiAction::Go(input) = action {
+                match location::resolve(&input) {
+                    Ok(url) => {
+                        log::debug!("開く {url}");
+                        self.ui.set_notice(None);
+                        self.engine.load(url);
+                    }
+                    Err(Rejected::Blocked(reason)) => {
+                        self.ui
+                            .set_notice(Some(format!("開かなかった（{}）", reason.message())));
+                    }
+                    Err(Rejected::Empty) => {}
+                }
             }
             // 入力欄を閉じると egui が IME を切るので、ページの入力欄の分を戻す
             self.apply_page_ime();

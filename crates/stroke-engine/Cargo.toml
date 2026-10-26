@@ -7,6 +7,7 @@ rust-version.workspace = true
 [dependencies]
 euclid.workspace = true
 glow.workspace = true
+http.workspace = true
 log.workspace = true
 servo.workspace = true
 url.workspace = true

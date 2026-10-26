@@ -1,0 +1,15 @@
+diff -ru a/request_interceptor.rs b/request_interceptor.rs
+--- a/request_interceptor.rs	2026-10-26 10:54:21.505307504 +0000
++++ b/request_interceptor.rs	2026-10-26 10:54:21.517937067 +0000
+@@ -33,7 +33,10 @@
+         let is_for_main_frame = matches!(request.destination, Destination::Document);
+         let web_resource_request = WebResourceRequest {
+             method: request.method.clone(),
+-            url: request.url().into_url(),
++            // STROKE PATCH: 元は request.url()（最初の URL）で、リダイレクトしたときも
++            // リダイレクト前の URL を渡していた。外枠がリダイレクト先を確かめられるよう、
++            // 今の URL を渡す。詳しくは stroke-browser の vendor/README.md
++            url: request.current_url().into_url(),
+             headers: request.headers.clone(),
+             is_for_main_frame,
+             is_redirect: request.redirect_count > 0,

@@ -5,10 +5,13 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use euclid::Scale;
+use http::StatusCode;
+use http::header::{self, HeaderMap, HeaderValue};
 use servo::{
     CompositionEvent, CompositionState, EmbedderControl, EmbedderControlId, EventLoopWaker,
-    ImeEvent, InputEvent, JSValue, LoadStatus, OffscreenRenderingContext, RenderingContext, Servo,
-    ServoBuilder, WebView, WebViewBuilder, WebViewDelegate, WindowRenderingContext,
+    ImeEvent, InputEvent, JSValue, LoadStatus, NavigationRequest, OffscreenRenderingContext,
+    RenderingContext, Servo, ServoBuilder, ServoDelegate, WebResourceLoad, WebResourceResponse,
+    WebView, WebViewBuilder, WebViewDelegate, WindowRenderingContext,
 };
 use url::Url;
 use winit::dpi::PhysicalSize;
@@ -17,7 +20,7 @@ use winit::keyboard::ModifiersState;
 use winit::raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use winit::window::Window;
 
-use crate::{CompositeFn, Engine, EngineEvent, LoadState, PixelRect, ScriptResult};
+use crate::{CompositeFn, Engine, EngineEvent, LoadState, PixelRect, ScriptResult, policy};
 
 pub struct ServoEngine {
     servo: Servo,
@@ -52,6 +55,8 @@ impl ServoEngine {
             .event_loop_waker(Box::new(Waker(Arc::new(wake))))
             .build();
         servo.setup_logging();
+        // WebView に結びつかない読み込み（あれば）も、同じ規則で止める
+        servo.set_delegate(Rc::new(ServoPolicy));
 
         let delegate = Rc::new(Delegate::default());
         let webview = WebViewBuilder::new(&servo, view_context.clone())
@@ -209,6 +214,31 @@ impl Delegate {
 }
 
 impl WebViewDelegate for Delegate {
+    /// ページからの移動（リンク、フォームの送信など）。規則に合わなければ断り、今のページに留まる
+    fn request_navigation(&self, _webview: WebView, request: NavigationRequest) {
+        match policy::check(&request.url, true) {
+            Ok(()) => request.allow(),
+            Err(reason) => {
+                log::warn!("移動を断った（{}）: {}", reason.message(), request.url);
+                self.push(EngineEvent::RequestBlocked {
+                    url: request.url.clone(),
+                    reason,
+                });
+                request.deny();
+            }
+        }
+    }
+
+    fn load_web_resource(&self, _webview: WebView, load: WebResourceLoad) {
+        let is_document = load.request().is_for_main_frame;
+        let url = load.request().url.clone();
+        if let Err(reason) = enforce_policy(load)
+            && is_document
+        {
+            self.push(EngineEvent::RequestBlocked { url, reason });
+        }
+    }
+
     fn notify_url_changed(&self, _webview: WebView, url: Url) {
         self.push(EngineEvent::UrlChanged(url));
     }
@@ -252,6 +282,76 @@ impl WebViewDelegate for Delegate {
             self.push(EngineEvent::InputMethodHidden);
         }
     }
+}
+
+/// WebView に結びつかない読み込みを見張る
+struct ServoPolicy;
+
+impl ServoDelegate for ServoPolicy {
+    fn load_web_resource(&self, load: WebResourceLoad) {
+        let _ = enforce_policy(load);
+    }
+}
+
+/// 規則（`policy.rs`）に合わない読み込みを止める。規則に合えば何もせず、そのまま読み込ませる。
+///
+/// 画像などの資源は、読み込みを取り消す（ネットワークのエラーになる）。ページ本体は、取り消すと
+/// Servo がそのページを待ったまま止まってしまうので、代わりに「開かなかった」と書いた
+/// ページ（403）を返す
+fn enforce_policy(load: WebResourceLoad) -> Result<(), policy::Blocked> {
+    let request = load.request();
+    log::debug!(
+        "読み込み {} {} (ページ本体: {}, リダイレクト: {})",
+        request.method,
+        request.url,
+        request.is_for_main_frame,
+        request.is_redirect
+    );
+    let result = policy::check(&request.url, request.is_for_main_frame);
+    let Err(reason) = result else {
+        return result;
+    };
+    log::warn!("読み込みを止めた（{}）: {}", reason.message(), request.url);
+    let url = request.url.clone();
+    if !request.is_for_main_frame {
+        load.intercept(WebResourceResponse::new(url)).cancel();
+        return result;
+    }
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/html; charset=utf-8"),
+    );
+    // 止めたページは、どのオリジンにも属さない（Cookie などに触れない）ようにする
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static("sandbox; default-src 'none'; style-src 'unsafe-inline'"),
+    );
+    let response = WebResourceResponse::new(url.clone())
+        .status_code(StatusCode::FORBIDDEN)
+        .headers(headers);
+    let mut intercepted = load.intercept(response);
+    intercepted.send_body_data(blocked_page(&url, reason).into_bytes());
+    intercepted.finish();
+    result
+}
+
+/// 止めたページの代わりに出すページ
+fn blocked_page(url: &Url, reason: policy::Blocked) -> String {
+    let escape = |text: &str| {
+        text.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;")
+    };
+    format!(
+        "<!doctype html><meta charset=utf-8><title>開かなかった</title>\
+         <style>body{{font:16px sans-serif;margin:3em;color:#333}}code{{word-break:break-all}}</style>\
+         <h1>このページは開かなかった</h1><p>{}</p><p><code>{}</code></p>",
+        escape(reason.message()),
+        escape(url.as_str()),
+    )
 }
 
 struct Waker(Arc<dyn Fn() + Send + Sync>);
