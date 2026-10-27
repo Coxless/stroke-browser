@@ -25,6 +25,7 @@ stroke-browser/
 ├── .workshop/            # 準備：Ubuntu の開発環境（Canonical Workshop）
 ├── container/            # 準備：Windows の開発環境（WSL container）
 ├── scripts/              # 環境の確認スクリプトなど
+├── vendor/               # 手を入れた Servo の crate（[patch.crates-io] で使う）
 ├── toy/                  # Phase 0：Python のトイブラウザ
 ├── fixtures/             # 確認用のローカル HTML（キーを奪うページなど）
 ├── Cargo.toml            # Rust workspace
@@ -109,32 +110,37 @@ crate は必要になった Phase で作ります。最初から全部は作り�
 ### 作業
 
 1. **環境構築**
-   - [ ] Servo の文書を確かめ、ビルドに必要なパッケージを開発環境の定義（`.workshop/stroke-dev/hooks/setup-base` と `container/Containerfile`）に足す
-   - [ ] servoshell をビルドして動かし、手元で Servo が動くことを確かめる
+   - [x] Servo の文書を確かめ、ビルドに必要なパッケージを開発環境の定義（`.workshop/stroke-dev/hooks/setup-base` と `container/Containerfile`）に足す
+   - [ ] servoshell をビルドして動かし、手元で Servo が動くことを確かめる（手順は `docs/dev-environment.md`。Servo が動くことは、`crates/stroke` を Xvfb の上で動かして確かめた）
 2. **日本語入力の確認**（最初に行う）
    - [ ] servoshell で、入力欄に IME（fcitx5 または IBus）で日本語を入力できるか試す
-   - [ ] 変換中の文字の表示、確定、変換候補の位置を確認し、結果を `docs/ime.md` に残す
-   - [ ] 使えない場合は、外枠側で winit の IME イベントを受けてエンジンに渡す方法を調べ、Phase 2 の作業に加える
+   - [ ] 変換中の文字の表示、確定、変換候補の位置を確認し、結果を `docs/ime.md` に残す（`docs/ime.md` に仕組みと確かめ方を書いた。結果はまだ）
+   - [x] 使えない場合は、外枠側で winit の IME イベントを受けてエンジンに渡す方法を調べ、Phase 2 の作業に加える（調べた結果、servoshell と同じつなぎ方を最初から `crates/stroke` に入れた。`docs/ime.md`）
 3. **UI の作り方を決める**
-   - [ ] 候補を比べて決め、`docs/decisions.md` に理由を残す
+   - [x] 候補を比べて決め、`docs/decisions.md` に理由を残す（winit ＋ egui に決めた）
      - winit ＋ egui（servoshell と同じ。お手本を読みながら作れる）
      - 外枠の UI も Web 技術で描く（2枚目の WebView。UI の作り込みは楽だが、キーの経路が二重になる）
    - 推し：**winit ＋ egui**。キーを最初に受け取る場所を1つに保てるため
 4. **最小の外枠**
-   - [ ] Cargo workspace と `crates/stroke` を作り、`servo` crate を依存に入れる
-   - [ ] ウィンドウを開き、WebView 1枚に固定の URL を表示する
-   - [ ] `crates/stroke-engine` に `Engine` trait を作り、Servo 実装をその後ろに置く
+   - [x] Cargo workspace と `crates/stroke` を作り、`servo` crate を依存に入れる
+   - [x] ウィンドウを開き、WebView 1枚に固定の URL を表示する
+   - [x] `crates/stroke-engine` に `Engine` trait を作り、Servo 実装をその後ろに置く
      - 最初に持つ操作：URL を開く、戻る、進む、再読み込み、キーを渡す、JS を実行する
      - 最初に受け取る通知：URL の変化、タイトルの変化、読み込みの状態
 5. **キーで URL を開く**
-   - [ ] URL 入力欄（egui）を作り、キーで呼び出して開く（仮のキーで良い。正式な配置は Phase 2）
-   - [ ] URL でない入力は検索エンジンに渡す
-   - [ ] 画面下に、現在の URL と読み込みの状態を出す
+   - [x] URL 入力欄（egui）を作り、キーで呼び出して開く（仮のキーで良い。正式な配置は Phase 2）
+   - [x] URL でない入力は検索エンジンに渡す
+   - [x] 画面下に、現在の URL と読み込みの状態を出す
 
 ### 完了条件
 
 - マウスに触らずに起動 → URL 入力 → ページ表示 → 別の URL へ、ができる
 - `docs/ime.md` と `docs/decisions.md` がある
+
+### 進み具合（2026-10-23）
+
+- クラウドの環境（画面なし）で、Xvfb の仮の画面と xdotool のキー入力を使って、起動 → `Ctrl+L` → URL 入力 → `Enter` → 別のページ → `Alt+←` / `Alt+→` → `F5` → `Ctrl+Q` をマウスなしで通した。ページの入力欄への文字入力と、`End` などのキーでのスクロールも効いた
+- 残り：Ubuntu の Workshop（本物の画面）で同じことを確かめる、IME で日本語を打つ（`docs/ime.md`）、servoshell を動かして比べる
 
 ---
 
@@ -185,6 +191,8 @@ crate は必要になった Phase で作ります。最初から全部は作り�
 ## Phase 3：ヒント
 
 **目的**：クリックできる要素にラベルを出し、ラベルを打って選べるようにする。
+
+> 2026-10-23：安全のため、ページの JS を止めた（`docs/decisions.md`、`vendor/README.md`）。外枠からの JS も動かないので、下の「要素を集める注入スクリプト」は、着手する前にやり方を決め直す。
 
 ### 作業
 
@@ -304,6 +312,7 @@ crate は必要になった Phase で作ります。最初から全部は作り�
 | キー配置 | Phase 2 の作業1 | 今使っている Firefox 拡張の配置を土台にする |
 | Ubuntu の日本語入力 | Phase 1 の作業2（最初に確認） | — |
 | 広告ブロック | Phase 6 | エンジンの読み込みを横取りする層＋ adblock-rust |
+| ヒントの要素の集め方（JS を止めたため） | Phase 3 に入る前 | — |
 
 決めたことは `docs/decisions.md` に、日付と理由を添えて残します。
 

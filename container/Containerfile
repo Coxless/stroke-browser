@@ -16,6 +16,37 @@ RUN apt-get update \
       fonts-noto-cjk \
  && rm -rf /var/lib/apt/lists/*
 
+# Phase 1（Servo）。.workshop/stroke-dev/hooks/setup-base と同じ一覧
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      clang \
+      cmake \
+      g++ \
+      gperf \
+      libdbus-1-dev \
+      libegl1-mesa-dev \
+      libfreetype6-dev \
+      libgl1-mesa-dri \
+      libgles2-mesa-dev \
+      libglib2.0-dev \
+      libharfbuzz-dev \
+      liblzma-dev \
+      libudev-dev \
+      libunwind-dev \
+      libvulkan1 \
+      libx11-dev \
+      libxcb-render0-dev \
+      libxcb-shape0-dev \
+      libxcb-xfixes0-dev \
+      libxkbcommon0 \
+      libxkbcommon-x11-0 \
+      libxmu-dev \
+      libxmu6 \
+      llvm-dev \
+      m4 \
+      xorg-dev \
+ && rm -rf /var/lib/apt/lists/*
+
 RUN useradd --create-home --shell /bin/bash dev
 USER dev
 ENV PATH=/home/dev/.cargo/bin:$PATH

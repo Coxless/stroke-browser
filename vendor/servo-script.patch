@@ -1,0 +1,32 @@
+diff -ru -x .cargo-ok a/dom/globalscope.rs b/dom/globalscope.rs
+--- a/dom/globalscope.rs	2006-07-24 01:21:28.000000000 +0000
++++ b/dom/globalscope.rs	2026-10-23 16:14:21.641570762 +0000
+@@ -2877,7 +2877,11 @@
+         introduction_type: Option<&'static CStr>,
+         rval: Option<MutableHandleValue>,
+     ) -> Result<(), JavaScriptEvaluationError> {
+-        assert!(self.can_run_script());
++        // STROKE PATCH: スクリプトを動かせない文書（サンドボックス）では、落ちずに失敗を返す。
++        // 元は assert! で、javascript: URL や外枠からの JS の実行でスクリプトのスレッドが落ちた
++        if !self.can_run_script() {
++            return Err(JavaScriptEvaluationError::EvaluationFailure(None));
++        }
+ 
+         let in_realm_proof = cx.into();
+         let in_realm = InRealm::Already(&in_realm_proof);
+diff -ru -x .cargo-ok a/dom/servoparser/mod.rs b/dom/servoparser/mod.rs
+--- a/dom/servoparser/mod.rs	2006-07-24 01:21:28.000000000 +0000
++++ b/dom/servoparser/mod.rs	2026-10-23 16:14:21.640528042 +0000
+@@ -1312,7 +1312,11 @@
+             .as_ref()
+             .and_then(|csp| csp.get_sandboxing_flag_set_for_document())
+             .unwrap_or(SandboxingFlagSet::empty())
+-            .union(self.target_snapshot_params.sandboxing_flags);
++            .union(self.target_snapshot_params.sandboxing_flags)
++            // STROKE PATCH: ページのスクリプトを動かさない。すべての文書を、CSP の
++            // `sandbox`（allow-scripts なし）と同じ「スクリプトを動かさない」状態にする。
++            // 詳しくは stroke-browser の vendor/README.md
++            .union(SandboxingFlagSet::SANDBOXED_SCRIPTS_BROWSING_CONTEXT_FLAG);
+ 
+         // Step 21.11. Set responseOrigin to the result of determining the origin
+         // given response's URL, finalSandboxFlags, and entry's document state's
