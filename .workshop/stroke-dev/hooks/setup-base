@@ -31,6 +31,7 @@ apt-get install -y --no-install-recommends \
   libudev-dev \
   libunwind-dev \
   libvulkan1 \
+  libwayland-egl1 \
   libx11-dev \
   libxcb-render0-dev \
   libxcb-shape0-dev \

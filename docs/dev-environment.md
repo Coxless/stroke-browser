@@ -88,6 +88,26 @@ cargo run -p stroke -- servo.org # URL を渡して起動する。省くと http
 
 目安（2026-10-23、4コア・メモリ 15GB のクラウドの環境で測った）：初回の `cargo build` は約15分、`target/` は約4.5GB。2回目からは自分の crate だけをビルドするので数秒。メモリは 15GB で足りた。
 
+### 安全に動かす
+
+Stroke は作りかけで、安全のための修正を追いかける体制もありません。次の3つを守って動かします。
+
+- **Workshop の中で動かす**。ホストで直接動かさない。中からはホームディレクトリなどに届かない
+- **X11 を使わない**。X11 につながったプログラムは、ほかの窓のキー入力を盗み見できる。`DISPLAY` を外し、Wayland だけで表示する
+- **ログインしない**。実際に使っているアカウントにログインしたり、パスワードを入れたりしない
+
+ホストから、次のように起動します。`DISPLAY` を外し、Wayland につながっていなければ起動しません。
+
+```sh
+workshop run -- run-browser servo.org
+```
+
+終えるときは窓を閉じます。外から `workshop run` を止めても、中でブラウザが動き続けることがあります。そのときは `workshop exec -- pkill -x stroke` で止めます。
+
+`desktop` インターフェースがつながっていないと、中から画面が見えません。`workshop connections` で `desktop` の行に SLOT が出ていなければ、`workshop connect dev/stroke-dev:desktop` でつなぎます。
+
+`/project` は中から書き込めるので、乗っ取られたブラウザが `.git/hooks/` などに書き込むと、ホストで `git` を使ったときに動いてしまいます。気になるページを開いた後は、ホストで `git status` と `ls .git/hooks | grep -v sample` を確かめます。
+
 起動すると、ウィンドウの下に読み込みの状態、URL、仮のキーの一覧が出ます。キーの一覧は `docs/decisions.md` の「Phase 1 の仮のキー」にあります。`RUST_LOG=stroke=debug` を付けると、押したキーの行き先（外枠の命令か、ページか）とエンジンからの通知がログに出ます。
 
 ### servoshell（お手本）を動かす

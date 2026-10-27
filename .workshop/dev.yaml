@@ -9,3 +9,10 @@ sdks:
 actions:
   check: |
     bash /project/scripts/check-env.sh "$@"
+  # ブラウザを起動する。X11 は使わない（docs/dev-environment.md の「安全に動かす」）
+  run-browser: |
+    if [ -z "${WAYLAND_DISPLAY:-}" ]; then
+      echo "Wayland につながっていない。X11 では起動しない" >&2
+      exit 1
+    fi
+    cd /project && env -u DISPLAY cargo run -p stroke -- "$@"
