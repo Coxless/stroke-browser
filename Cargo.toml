@@ -1,0 +1,32 @@
+[workspace]
+resolver = "3"
+members = ["crates/stroke", "crates/stroke-engine"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.88"
+
+[workspace.dependencies]
+stroke-engine = { path = "crates/stroke-engine" }
+# LTS 版。上げるのは区切りのよい時だけ（plan.md の「危険と対策」）
+servo = "=0.1.4"
+egui = "0.33.3"
+egui-winit = { version = "0.33.3", default-features = false, features = ["clipboard", "wayland", "x11"] }
+egui_glow = { version = "0.33.3", features = ["winit"] }
+euclid = "0.22"
+glow = "0.16"
+http = "1.4"
+log = "0.4"
+rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs"] }
+url = "2.5"
+winit = "0.30.13"
+
+# Servo は最適化なしだと遅すぎて使えない。依存だけ最適化し、自分のコードはデバッグしやすく保つ
+[profile.dev.package."*"]
+opt-level = 2
+debug = false
+
+# 手を入れた Servo の crate。直した内容と理由は vendor/README.md
+[patch.crates-io]
+servo-script = { path = "vendor/servo-script" }
+servo-net = { path = "vendor/servo-net" }
