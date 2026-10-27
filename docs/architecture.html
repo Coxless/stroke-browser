@@ -1,0 +1,594 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stroke の仕組み</title>
+<meta name="description" content="Stroke browser（Phase 1 時点）の構造と、URL を開いてから画面に出るまで・キーを押してからページに届くまでの流れ">
+<style>
+:root {
+  --bg: #fbfaf7;
+  --surface: #ffffff;
+  --surface-2: #f2f0ea;
+  --text: #22201c;
+  --muted: #6b665c;
+  --line: #ddd8cc;
+  --accent: #1f6f8b;
+  --accent-soft: #e3f0f4;
+  --shell: #2f7d4f;
+  --shell-soft: #e4f2e8;
+  --engine: #8a5a12;
+  --engine-soft: #f7eddb;
+  --servo: #6a4c93;
+  --servo-soft: #eee8f6;
+  --warn: #a33b2b;
+  --warn-soft: #f8e6e2;
+  --code-bg: #f2f0ea;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #17181a;
+    --surface: #1f2023;
+    --surface-2: #26282c;
+    --text: #e8e6e1;
+    --muted: #a19c92;
+    --line: #3a3c41;
+    --accent: #6cb8d4;
+    --accent-soft: #1d3540;
+    --shell: #7cc796;
+    --shell-soft: #1d3326;
+    --engine: #e0b46a;
+    --engine-soft: #3a2f1c;
+    --servo: #b9a0dc;
+    --servo-soft: #2f2740;
+    --warn: #ec8f7f;
+    --warn-soft: #3d231f;
+    --code-bg: #26282c;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #17181a;
+  --surface: #1f2023;
+  --surface-2: #26282c;
+  --text: #e8e6e1;
+  --muted: #a19c92;
+  --line: #3a3c41;
+  --accent: #6cb8d4;
+  --accent-soft: #1d3540;
+  --shell: #7cc796;
+  --shell-soft: #1d3326;
+  --engine: #e0b46a;
+  --engine-soft: #3a2f1c;
+  --servo: #b9a0dc;
+  --servo-soft: #2f2740;
+  --warn: #ec8f7f;
+  --warn-soft: #3d231f;
+  --code-bg: #26282c;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.8 "Noto Sans CJK JP", "Noto Sans JP", "Hiragino Sans", "Yu Gothic UI", system-ui, sans-serif;
+}
+main { max-width: 860px; margin: 0 auto; padding: 32px 16px 96px; }
+h1 { font-size: 1.9rem; line-height: 1.3; margin: 0 0 .25em; }
+h2 {
+  font-size: 1.35rem; line-height: 1.4; margin: 3em 0 .8em;
+  padding-top: .6em; border-top: 1px solid var(--line);
+}
+h3 { font-size: 1.08rem; margin: 2em 0 .5em; }
+p, li { overflow-wrap: anywhere; }
+a { color: var(--accent); }
+code {
+  font-family: "Noto Sans Mono CJK JP", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: .88em; background: var(--code-bg); padding: .1em .35em; border-radius: 4px;
+}
+pre {
+  background: var(--code-bg); padding: 12px 14px; border-radius: 8px;
+  overflow-x: auto; line-height: 1.55; font-size: .86rem;
+}
+pre code { background: none; padding: 0; font-size: inherit; }
+.lead { color: var(--muted); margin: 0 0 1.5em; }
+.meta { color: var(--muted); font-size: .9rem; }
+
+nav.toc {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  padding: 12px 18px; margin: 1.5em 0;
+}
+nav.toc ol { margin: .3em 0; padding-left: 1.4em; }
+nav.toc li { margin: .1em 0; }
+
+.note {
+  background: var(--accent-soft); border-left: 4px solid var(--accent);
+  padding: 10px 14px; border-radius: 0 8px 8px 0; margin: 1.2em 0;
+}
+.caution {
+  background: var(--warn-soft); border-left: 4px solid var(--warn);
+  padding: 10px 14px; border-radius: 0 8px 8px 0; margin: 1.2em 0;
+}
+
+/* 層の図 */
+.stack { display: grid; gap: 6px; margin: 1.5em 0; }
+.layer {
+  border-radius: 10px; padding: 10px 14px; border: 1px solid var(--line);
+  background: var(--surface);
+}
+.layer .name { font-weight: 700; }
+.layer .where { color: var(--muted); font-size: .85rem; }
+.layer .parts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.layer .parts span {
+  font-size: .82rem; padding: 2px 8px; border-radius: 999px;
+  background: var(--surface-2); border: 1px solid var(--line);
+}
+.layer.os { background: var(--surface-2); }
+.layer.shell { background: var(--shell-soft); border-color: var(--shell); }
+.layer.boundary {
+  background: transparent; border: 2px dashed var(--engine); text-align: center;
+}
+.layer.engine { background: var(--engine-soft); border-color: var(--engine); }
+.layer.servo { background: var(--servo-soft); border-color: var(--servo); }
+.layer .parts span.patched { border-color: var(--warn); color: var(--warn); }
+.arrows {
+  display: flex; justify-content: space-between; gap: 12px; font-size: .85rem; color: var(--muted);
+  padding: 0 8px;
+}
+
+/* 流れ */
+ol.flow { list-style: none; counter-reset: step; padding: 0; margin: 1.2em 0; }
+ol.flow > li {
+  counter-increment: step; position: relative;
+  padding: 8px 12px 8px 48px; margin: 0 0 6px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+}
+ol.flow > li::before {
+  content: counter(step); position: absolute; left: 10px; top: 9px;
+  width: 26px; height: 26px; border-radius: 50%;
+  display: grid; place-items: center; font-size: .8rem; font-weight: 700;
+  background: var(--surface-2); color: var(--muted);
+}
+ol.flow > li.shell { border-left: 4px solid var(--shell); }
+ol.flow > li.engine { border-left: 4px solid var(--engine); }
+ol.flow > li.servo { border-left: 4px solid var(--servo); }
+ol.flow .src { display: block; font-size: .82rem; color: var(--muted); }
+
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: .85rem; color: var(--muted); }
+.legend i {
+  display: inline-block; width: 12px; height: 12px; border-radius: 3px;
+  vertical-align: -1px; margin-right: 5px;
+}
+
+/* 表 */
+.table-wrap { overflow-x: auto; margin: 1em 0; }
+table { border-collapse: collapse; width: 100%; font-size: .92rem; }
+th, td { border-bottom: 1px solid var(--line); padding: 7px 10px; text-align: left; vertical-align: top; }
+th { background: var(--surface-2); font-weight: 700; white-space: nowrap; }
+td code { white-space: nowrap; }
+
+/* 描画の重なり */
+.paint-demo {
+  border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
+  background: var(--surface); margin: 1.2em 0; max-width: 520px;
+}
+.paint-demo .bar {
+  padding: 6px 12px; font-size: .82rem; background: var(--shell-soft); color: var(--text);
+}
+.paint-demo .page {
+  height: 150px; display: grid; place-items: center; text-align: center;
+  background: repeating-linear-gradient(45deg, var(--servo-soft), var(--servo-soft) 10px, var(--surface) 10px, var(--surface) 20px);
+  font-size: .9rem; padding: 8px;
+}
+.paint-demo .page b { background: var(--surface); padding: 2px 8px; border-radius: 6px; }
+
+details { margin: 1em 0; }
+summary { cursor: pointer; font-weight: 700; }
+
+.checklist li { margin: .2em 0; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Stroke の仕組み</h1>
+<p class="meta">Phase 1 時点（2026-10-27）のコードをもとにしています</p>
+<p class="lead">Stroke browser がどう組み立てられているかを、勉強用にまとめた資料です。どの層が何を受け持つかを見た後、「URL を開いてから画面に出るまで」と「キーを押してからページに届くまで」の2つの流れを、実際の関数をたどりながら追います。</p>
+
+<nav class="toc" aria-label="目次">
+<strong>目次</strong>
+<ol>
+  <li><a href="#layers">全体の層</a></li>
+  <li><a href="#files">ファイルの地図</a></li>
+  <li><a href="#boundary">外枠とエンジンの境界（Engine trait）</a></li>
+  <li><a href="#loop">イベントループと「起こす」仕組み</a></li>
+  <li><a href="#flow-url">流れ1：URL を開いてから画面に出るまで</a></li>
+  <li><a href="#flow-key">流れ2：キーを押してからページに届くまで</a></li>
+  <li><a href="#paint">描画の重ね方</a></li>
+  <li><a href="#security">安全のための仕組み</a></li>
+  <li><a href="#servo">Servo の中（おおまか）</a></li>
+  <li><a href="#next">まだないもの・これから</a></li>
+  <li><a href="#study">自分で確かめる</a></li>
+</ol>
+</nav>
+
+<!-- ============================================================ -->
+<h2 id="layers">1. 全体の層</h2>
+
+<p>Stroke は、上から順に次の層でできています。ポイントは、<strong>キーを最初に受け取るのは常に外枠（<code>crates/stroke</code>）</strong>だということと、<strong>外枠は Servo の型に直接触らない</strong>ことです。外枠とエンジンの間には <code>Engine</code> trait という薄い境界があります。</p>
+
+<div class="stack" role="figure" aria-label="Stroke の層の図">
+  <div class="layer os">
+    <div class="name">OS・表示サーバー（Wayland）</div>
+    <div class="where">ウィンドウ、キー、IME、GPU</div>
+  </div>
+  <div class="layer os">
+    <div class="name">winit</div>
+    <div class="where">ウィンドウを作り、OS のイベントを <code>WindowEvent</code> として届けるイベントループ</div>
+  </div>
+  <div class="layer shell">
+    <div class="name">外枠 — <code>crates/stroke</code></div>
+    <div class="where">キーの振り分け、URL 入力欄と状態表示、全体の配線</div>
+    <div class="parts">
+      <span>main.rs（App / Running）</span>
+      <span>shortcuts.rs（仮のキー）</span>
+      <span>location.rs（入力 → URL）</span>
+      <span>ui.rs（egui）</span>
+    </div>
+  </div>
+  <div class="arrows"><span>↓ 操作（load, send_key …）</span><span>↑ 通知（EngineEvent）</span></div>
+  <div class="layer boundary">
+    <div class="name"><code>Engine</code> trait — <code>crates/stroke-engine/src/lib.rs</code></div>
+    <div class="where">ここより上に Servo の型は出さない（winit と glow の型は出してよい）</div>
+  </div>
+  <div class="layer engine">
+    <div class="name">エンジン層 — <code>crates/stroke-engine</code></div>
+    <div class="where">Engine の Servo 実装と、通知の受け取り、読み込みの規則</div>
+    <div class="parts">
+      <span>servo_engine.rs（ServoEngine / Delegate）</span>
+      <span>keys.rs（キーの変換）</span>
+      <span>policy.rs（開いてよい URL）</span>
+    </div>
+  </div>
+  <div class="layer servo">
+    <div class="name">Servo 0.1.4（crates.io の LTS 版）</div>
+    <div class="where">HTML・CSS の解析、レイアウト、描画、ネットワーク。赤枠は <code>vendor/</code> で手を入れた crate</div>
+    <div class="parts">
+      <span>constellation</span>
+      <span class="patched">script（JS を止めた）</span>
+      <span>layout / style</span>
+      <span class="patched">net（リダイレクト先を渡す）</span>
+      <span>WebRender</span>
+      <span>SpiderMonkey</span>
+    </div>
+  </div>
+</div>
+
+<p>この作りは、Servo のお手本の外枠である <strong>servoshell</strong> と同じです（<code>docs/decisions.md</code> の「外枠の UI は winit ＋ egui で作る」）。困ったときは servoshell のソースが読めます。</p>
+
+<!-- ============================================================ -->
+<h2 id="files">2. ファイルの地図</h2>
+
+<p>Rust のコードは全部で 1,500 行ほどです。小さいので、全部を読み通せます。おすすめの読む順に並べています。</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>ファイル</th><th>行数</th><th>何をするか</th></tr></thead>
+<tbody>
+<tr><td><code>crates/stroke-engine/src/lib.rs</code></td><td>116</td><td><code>Engine</code> trait と <code>EngineEvent</code>。外枠とエンジンの約束ごと。<strong>最初に読む</strong></td></tr>
+<tr><td><code>crates/stroke/src/main.rs</code></td><td>311</td><td>起動、winit のイベントループ、キーの振り分け、エンジンの通知の処理、描画の順番</td></tr>
+<tr><td><code>crates/stroke/src/shortcuts.rs</code></td><td>86</td><td>Phase 1 の仮のキー。押されたキーが外枠の命令かを決める</td></tr>
+<tr><td><code>crates/stroke/src/ui.rs</code></td><td>249</td><td>egui で描く URL 入力欄と状態表示。ページを egui の一番下の層に写す</td></tr>
+<tr><td><code>crates/stroke/src/location.rs</code></td><td>181</td><td>URL 入力欄に打った文字を URL か検索に直す</td></tr>
+<tr><td><code>crates/stroke-engine/src/servo_engine.rs</code></td><td>390</td><td><code>Engine</code> の Servo 実装。Servo からの通知（delegate）を <code>EngineEvent</code> にして溜める</td></tr>
+<tr><td><code>crates/stroke-engine/src/keys.rs</code></td><td>110</td><td>winit のキーイベントを、W3C の <code>KeyboardEvent</code>（Servo の形）に直す</td></tr>
+<tr><td><code>crates/stroke-engine/src/policy.rs</code></td><td>114</td><td>読み込んでよい URL の規則</td></tr>
+<tr><td><code>vendor/servo-script</code>、<code>vendor/servo-net</code></td><td>—</td><td>手を入れた Servo の crate。差分は <code>vendor/*.patch</code>、理由は <code>vendor/README.md</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="boundary">3. 外枠とエンジンの境界（Engine trait）</h2>
+
+<p><code>crates/stroke-engine/src/lib.rs:69</code> の <code>Engine</code> trait が、外枠から見たエンジンのすべてです。メソッドは役割ごとに4つに分かれています。</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>グループ</th><th>メソッド</th><th>向き</th></tr></thead>
+<tbody>
+<tr><td>外枠からの操作</td><td><code>load</code> <code>go_back</code> <code>go_forward</code> <code>reload</code> <code>send_key</code> <code>send_ime</code> <code>evaluate_script</code></td><td>外枠 → エンジン</td></tr>
+<tr><td>今の状態</td><td><code>url</code> <code>title</code> <code>load_state</code> <code>can_go_back</code> <code>can_go_forward</code></td><td>外枠が聞きに行く</td></tr>
+<tr><td>エンジンからの通知</td><td><code>spin</code> <code>take_events</code></td><td>エンジン → 外枠（外枠が取りに行く）</td></tr>
+<tr><td>表示</td><td><code>gl</code> <code>make_current</code> <code>resize_window</code> <code>resize_view</code> <code>paint</code> <code>composite_fn</code> <code>begin_frame</code> <code>present</code></td><td>OpenGL の文脈を共有して描く</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>通知は「溜めて、取りに行く」</h3>
+
+<p>Servo は、ページの URL やタイトルが変わったり、新しい画面が描けたりすると、<code>WebViewDelegate</code> のメソッド（<code>notify_url_changed</code> など）を呼びます。Stroke ではこれを <code>Delegate</code>（<code>servo_engine.rs:203</code>）が受け取り、<code>EngineEvent</code> に直して <code>Vec</code> に<strong>溜めるだけ</strong>にしています。外枠は <code>spin()</code> の後に <code>take_events()</code> でまとめて取り出して処理します（<code>main.rs:152</code>）。</p>
+
+<p>こうすると、外枠の状態（ウィンドウ、UI）を触るのは外枠のコードだけになり、Servo の呼び出しの途中で外枠の状態を書き換える、ということが起きません。</p>
+
+<table>
+<thead><tr><th><code>EngineEvent</code></th><th>外枠がすること（<code>main.rs</code> の <code>Running::spin</code>）</th></tr></thead>
+<tbody>
+<tr><td><code>NewFrameReady</code>、<code>LoadStateChanged</code></td><td>ウィンドウの描き直しを頼む</td></tr>
+<tr><td><code>UrlChanged</code></td><td>止めたというお知らせを消し、描き直す</td></tr>
+<tr><td><code>TitleChanged</code></td><td>ウィンドウのタイトルを「〇〇 — Stroke」にする</td></tr>
+<tr><td><code>InputMethodShown</code> / <code>Hidden</code></td><td>IME を有効・無効にし、変換候補の位置を入力欄に合わせる</td></tr>
+<tr><td><code>RequestBlocked</code></td><td>画面下に「開かなかった（理由）」を出す</td></tr>
+</tbody>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="loop">4. イベントループと「起こす」仕組み</h2>
+
+<p>Stroke のメインスレッドは、winit のイベントループ1本だけです。winit は、何かイベントが来るまで眠っています。ところが Servo は、ネットワークやレイアウトの仕事を<strong>別のスレッド</strong>で進めます。別のスレッドで仕事が終わったとき、眠っているメインスレッドを起こす必要があります。</p>
+
+<ol class="flow">
+  <li class="servo">Servo の別スレッドで、ページの読み込みや描画が進む</li>
+  <li class="engine">Servo が <code>EventLoopWaker::wake()</code> を呼ぶ。Stroke の <code>Waker</code> は、起動時に外枠から渡された関数を呼ぶだけ
+    <span class="src">servo_engine.rs:357 <code>Waker</code></span></li>
+  <li class="shell">その関数は <code>proxy.send_event(AppEvent::Wake)</code> で、winit のイベントループにユーザーイベントを投げる
+    <span class="src">main.rs:96–103</span></li>
+  <li class="shell">winit が目を覚まし、<code>App::user_event</code> が呼ばれる → <code>Running::spin()</code>
+    <span class="src">main.rs:123</span></li>
+  <li class="engine"><code>engine.spin()</code> が <code>servo.spin_event_loop()</code> を呼ぶ。ここで Servo がメインスレッドでの仕事を進め、delegate のメソッドを呼ぶ → <code>EngineEvent</code> が溜まる
+    <span class="src">servo_engine.rs:147</span></li>
+  <li class="shell"><code>take_events()</code> で取り出して処理する
+    <span class="src">main.rs:154</span></li>
+</ol>
+
+<p>ウィンドウのイベント（キー、大きさの変化など）が来たときも、処理の前に必ず <code>spin()</code> を呼んでいます（<code>main.rs:137</code>）。<code>AppEvent</code> にはもう1つ <code>Repaint</code> があり、こちらは egui が「描き直したい」ときに使います（カーソルを動かしたときなど）。</p>
+
+<div class="note">winit の <code>resumed</code>（<code>main.rs:84</code>）は「ウィンドウを作ってよくなった」合図です。ウィンドウ、エンジン、UI はすべてここで作り、<code>Running</code> にまとめます。<code>Running</code> のフィールドの順番には意味があり、Rust は書いた順に片付けるので、egui の OpenGL の資源を、エンジンの OpenGL の文脈より先に片付けられるようにしています（<code>main.rs:70–81</code>）。</div>
+
+<!-- ============================================================ -->
+<h2 id="flow-url">5. 流れ1：URL を開いてから画面に出るまで</h2>
+
+<p class="legend"><span><i style="background:var(--shell)"></i>外枠</span><span><i style="background:var(--engine)"></i>エンジン層</span><span><i style="background:var(--servo)"></i>Servo の中</span></p>
+
+<h3>URL 入力欄で打つ</h3>
+<ol class="flow">
+  <li class="shell"><code>Ctrl+L</code> を押す。キーは外枠が先に受け取り、<code>shortcuts::command_for</code> が <code>Command::OpenLocation</code> を返す
+    <span class="src">main.rs:210–219、shortcuts.rs:19</span></li>
+  <li class="shell"><code>ui.open_location(今の URL)</code> で入力欄を開く。この間、キーはページではなく egui に渡る
+    <span class="src">main.rs:244、ui.rs:82</span></li>
+  <li class="shell"><code>Enter</code> を押すと、egui が <code>UiAction::Go(入力した文字)</code> を返す
+    <span class="src">ui.rs:185 <code>location_bar</code></span></li>
+  <li class="shell"><code>location::resolve</code> が文字を URL に直す。<code>servo.org</code> → <code>https://servo.org/</code>、手元以外の <code>http:</code> → <code>https:</code>、URL でなければ DuckDuckGo の検索の URL、<code>file:</code> などは断る
+    <span class="src">location.rs:41</span></li>
+  <li class="engine"><code>engine.load(url)</code> → <code>webview.load(url)</code>
+    <span class="src">main.rs:280、servo_engine.rs:81</span></li>
+</ol>
+
+<h3>Servo が読み込んで描く</h3>
+<ol class="flow">
+  <li class="servo">Servo のネットワーク（net）が読み込みを始める前に、外枠に「読み込んでいいか」を聞く</li>
+  <li class="engine"><code>Delegate::load_web_resource</code> → <code>enforce_policy</code> → <code>policy::check</code>。規則に合えば何もしない（Servo がそのまま読む）。合わなければ止める
+    <span class="src">servo_engine.rs:232、301、policy.rs:34</span></li>
+  <li class="servo">HTML を受け取り、script の中の HTML パーサーが DOM の木を作る。Stroke では、ここで文書に「スクリプトを動かさない」印を付けている（<code>vendor/servo-script</code>）</li>
+  <li class="servo">CSS を解析してスタイルを決め、layout が箱の位置と大きさを決め、描くもの（ディスプレイリスト）を作る</li>
+  <li class="servo">途中で URL、タイトル、読み込みの状態が変わるたびに delegate を呼ぶ → <code>UrlChanged</code>、<code>TitleChanged</code>、<code>LoadStateChanged</code> が溜まる
+    <span class="src">servo_engine.rs:242–257</span></li>
+  <li class="servo">新しい画面の準備ができると <code>notify_new_frame_ready</code> → <code>NewFrameReady</code>
+    <span class="src">servo_engine.rs:259</span></li>
+</ol>
+
+<h3>外枠がウィンドウに出す</h3>
+<ol class="flow">
+  <li class="shell"><code>NewFrameReady</code> を受けて <code>window.request_redraw()</code>。winit から <code>RedrawRequested</code> が来る
+    <span class="src">main.rs:159、200</span></li>
+  <li class="shell"><code>Running::redraw</code>：<code>ui.run</code> が状態表示と URL 入力欄を組み立て、残りの領域をページの表示領域（<code>view_rect</code>）にする
+    <span class="src">main.rs:267、ui.rs:92</span></li>
+  <li class="engine"><code>resize_view</code> で表示領域に合わせ、<code>paint()</code> で WebRender にページを<strong>画面外のバッファ</strong>へ描かせる
+    <span class="src">ui.rs:119–124</span></li>
+  <li class="shell">画面外のバッファをウィンドウに写す関数（<code>composite_fn</code>）を、egui の一番下の層に登録する
+    <span class="src">ui.rs:125–141</span></li>
+  <li class="shell"><code>begin_frame</code> → <code>ui.paint</code>（まずページを写し、その上に egui の UI を描く）→ <code>present</code> でウィンドウに出す
+    <span class="src">main.rs:270–272</span></li>
+</ol>
+
+<!-- ============================================================ -->
+<h2 id="flow-key">6. 流れ2：キーを押してからページに届くまで</h2>
+
+<p>Stroke の主題は「キーボードだけで使い切る」ことです。そのために、<strong>キーは必ず外枠が先に受け取り、ページに渡すかを外枠が決めます</strong>。ふつうのブラウザの拡張機能ではページにキーを奪われることがありますが、外枠を自分で持てばそれが起きません。</p>
+
+<ol class="flow">
+  <li class="shell">OS → winit → <code>WindowEvent::KeyboardInput</code>。修飾キーの状態は <code>ModifiersChanged</code> で別に届くので、<code>Running.modifiers</code> に覚えておく
+    <span class="src">main.rs:204</span></li>
+  <li class="shell"><strong>URL 入力欄が開いていれば</strong>、キーは egui に渡す（ページには届かない）
+    <span class="src">main.rs:210 の <code>if !self.ui.location_open()</code></span></li>
+  <li class="shell">開いていなければ、<code>shortcuts::command_for</code> で外枠の命令かを調べる。命令なら実行して終わり（ページには届かない）
+    <span class="src">main.rs:211–219</span></li>
+  <li class="shell">命令でなければ <code>engine.send_key(key, modifiers)</code>
+    <span class="src">main.rs:227</span></li>
+  <li class="engine"><code>keys::keyboard_event</code> が winit のキーを W3C の <code>KeyboardEvent</code> の形（<code>key</code>、<code>code</code>、<code>location</code>、修飾キー）に直す
+    <span class="src">keys.rs:14</span></li>
+  <li class="engine"><code>webview.notify_input_event(InputEvent::Keyboard(…))</code> で Servo に渡す
+    <span class="src">servo_engine.rs:101</span></li>
+  <li class="servo">Servo がフォーカスのある要素に <code>keydown</code> などを配る。ページの JS は止めてあるので、矢印や <code>Space</code> によるスクロールなど、ブラウザの既定の動作が起きる</li>
+</ol>
+
+<h3>キーの <code>key</code> と <code>code</code></h3>
+<p>W3C のキーイベントには、<code>key</code>（論理的な意味。<code>"a"</code>、<code>"Enter"</code>）と <code>code</code>（物理的な位置。<code>"KeyA"</code>）の2つがあります。winit の <code>logical_key</code> と <code>physical_key</code> がそれぞれに当たります。winit の名前と W3C の名前はほとんど同じなので、<code>keys.rs</code> は名前の文字列を介して変換し、違うもの（<code>Space</code> は名前のキーではなく文字 <code>" "</code>、<code>Super</code> は <code>Meta</code>）だけ個別に直しています。</p>
+
+<h3>日本語入力（IME）の経路</h3>
+<p>IME はキーとは別の道を通ります。</p>
+<ol class="flow">
+  <li class="servo">ページの入力欄にフォーカスが入ると、Servo が <code>show_embedder_control(InputMethod)</code> を呼ぶ</li>
+  <li class="engine"><code>Delegate</code> が入力欄の位置を付けて <code>InputMethodShown { area }</code> を溜める
+    <span class="src">servo_engine.rs:263</span></li>
+  <li class="shell">外枠が <code>window.set_ime_allowed(true)</code> と <code>set_ime_cursor_area</code> を呼ぶ。位置は「ページの表示領域の左上」＋「入力欄の位置」で、変換候補が入力欄のそばに出る
+    <span class="src">main.rs:296 <code>apply_page_ime</code></span></li>
+  <li class="shell">IME から <code>WindowEvent::Ime</code>（変換中の文字 <code>Preedit</code>、確定 <code>Commit</code>）が来る → <code>engine.send_ime</code>
+    <span class="src">main.rs:230</span></li>
+  <li class="engine">W3C の composition イベント（<code>Start</code> / <code>Update</code> / <code>End</code>）に直して Servo に渡す
+    <span class="src">servo_engine.rs:106</span></li>
+</ol>
+<p>詳しくは <code>docs/ime.md</code> にあります。</p>
+
+<!-- ============================================================ -->
+<h2 id="paint">7. 描画の重ね方</h2>
+
+<p>ウィンドウには、<strong>Servo が描いたページ</strong>と、<strong>egui が描く外枠の UI</strong> の2つが出ます。この2つは同じ OpenGL の文脈を共有しています。</p>
+
+<div class="paint-demo" role="img" aria-label="ウィンドウの中で、ページの上に egui の UI が重なっている図">
+  <div class="bar">egui：URL 入力欄（開いているときだけ）</div>
+  <div class="page"><div><b>Servo が画面外のバッファに描いたページ</b><br>egui の一番下の層（<code>LayerId::background()</code>）に写す</div></div>
+  <div class="bar">egui：状態表示（読み込みの状態、お知らせ、URL、キーの一覧）</div>
+</div>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>もの</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>WindowRenderingContext</code></td><td>ウィンドウそのものに描く OpenGL の文脈。最後に <code>present</code> でウィンドウに出す</td></tr>
+<tr><td><code>OffscreenRenderingContext</code></td><td>ページを描く画面外のバッファ。大きさはページの表示領域に合わせる</td></tr>
+<tr><td><code>composite_fn</code></td><td>画面外のバッファを、ウィンドウの指定した長方形に写す関数。egui の <code>PaintCallback</code> の中で呼ばれる</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>座標系に気をつける</h3>
+<p>UI とエンジンの <code>PixelRect</code> は、原点が<strong>ウィンドウの左上</strong>です。ところが OpenGL は原点が<strong>左下</strong>です。そのため <code>composite_fn</code> に渡す長方形だけは、egui の <code>clip.from_bottom_px</code>（下からの距離）を使っています（<code>ui.rs:130–138</code>）。</p>
+
+<h3>順番に気をつける</h3>
+<p><code>ui.run</code> の中では、必ず「表示領域の大きさを変える → ページを描く → 写す関数を登録する」の順にしています。大きさを変えるとバッファが作り直されるので、逆にすると、写す関数が消されたバッファを指してしまいます（<code>ui.rs:116–118</code> のコメント）。</p>
+
+<!-- ============================================================ -->
+<h2 id="security">8. 安全のための仕組み</h2>
+
+<p>Stroke は作りかけで、Servo もまだ若いエンジンです。そのため、<strong>攻撃を受ける面そのものを小さくする</strong>方針をとっています。</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>仕組み</th><th>どこで</th><th>何を防ぐか</th></tr></thead>
+<tbody>
+<tr>
+  <td>ページの JS を動かさない</td>
+  <td><code>vendor/servo-script</code>（すべての文書にサンドボックスの印を付ける）</td>
+  <td>ブラウザへの攻撃の多くは JS エンジン（JIT、WebAssembly、DOM との境目）を通る</td>
+</tr>
+<tr>
+  <td>開ける URL を絞る</td>
+  <td><code>policy.rs</code> の規則を3か所で使う（下の表）</td>
+  <td><code>http:</code> の書き換え、<code>file:</code> で手元のファイルを読まれること、<code>data:</code> の偽のページ</td>
+</tr>
+<tr>
+  <td>リダイレクト先も確かめる</td>
+  <td><code>vendor/servo-net</code>（外枠に今の URL を渡す）</td>
+  <td><code>https:</code> から <code>http:</code> へのリダイレクトですり抜けること</td>
+</tr>
+<tr>
+  <td>止めたページを無害にする</td>
+  <td><code>enforce_policy</code> が返す 403 のページに <code>Content-Security-Policy: sandbox</code> を付ける</td>
+  <td>止めた代わりのページが、どのオリジンの Cookie にも触れないようにする</td>
+</tr>
+<tr>
+  <td>閉じ込めて動かす</td>
+  <td><code>workshop run -- run-browser</code>（<code>docs/dev-environment.md</code> の「安全に動かす」）</td>
+  <td>乗っ取られても、ホームディレクトリや X11 の他の窓に届かないようにする</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<h3>URL の規則を確かめる3か所</h3>
+<ol class="flow">
+  <li class="shell"><strong>URL 入力欄</strong>：<code>location::resolve</code>。<code>http:</code> を <code>https:</code> に直し、<code>file:</code> などは検索にも回さずに断る（打った文字が検索エンジンに漏れないように）</li>
+  <li class="engine"><strong>ページからの移動</strong>（リンク、フォーム）：<code>Delegate::request_navigation</code> で断り、今のページに留まる
+    <span class="src">servo_engine.rs:218</span></li>
+  <li class="engine"><strong>すべての読み込み</strong>（ページ本体、画像などの資源、リダイレクト先）：<code>load_web_resource</code> → <code>enforce_policy</code>。資源は取り消し、ページ本体は「開かなかった」ページを代わりに返す
+    <span class="src">servo_engine.rs:301</span></li>
+</ol>
+
+<div class="caution">ページ本体の読み込みを取り消すと、Servo がそのページを待ったまま止まり、次の URL を開けなくなります。そのため、ページ本体だけは取り消さずに、代わりのページ（403）を返しています。</div>
+
+<!-- ============================================================ -->
+<h2 id="servo">9. Servo の中（おおまか）</h2>
+
+<p>Stroke のコードが直接触るのは、主に <code>Servo</code>、<code>WebView</code>、delegate、描画の文脈だけですが、その奥では次のような部品が動いています。Phase 5 で中を読むときの地図にしてください。部品の分け方は版によって変わるので、読むときは Servo Book と Servo のソースで確かめます。</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>部品</th><th>受け持ち</th><th>Stroke との関わり</th></tr></thead>
+<tbody>
+<tr><td>constellation</td><td>WebView とその中の文書（フレーム）を束ねる司令塔。移動や履歴を管理し、各部品の間でメッセージを中継する</td><td><code>request_navigation</code> などの問い合わせは、ここを経由して外枠に来る</td></tr>
+<tr><td>script</td><td>DOM、HTML パーサー、イベントの配送。JS は SpiderMonkey で動かす</td><td><code>vendor/servo-script</code> で JS を止めている。キーイベントもここで要素に配られる</td></tr>
+<tr><td>style（Stylo）・layout</td><td>CSS からスタイルを決め、箱の位置と大きさを決めて、描くもののリストを作る</td><td>Phase 5 でキャレットモードなどを作るときに読む</td></tr>
+<tr><td>net</td><td>HTTP、TLS、Cookie、キャッシュ。読み込みの前に外枠に問い合わせる</td><td><code>load_web_resource</code> はここから来る。<code>vendor/servo-net</code> で直した</td></tr>
+<tr><td>WebRender</td><td>描くもののリストを GPU で絵にする</td><td><code>webview.paint()</code> で画面外のバッファに描かせている</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Phase 0 のトイブラウザ（Web Browser Engineering）で作る「ダウンロード → 解析 → スタイル → レイアウト → 描画」の流れが、そのまま net → script → style・layout → WebRender に対応します。</p>
+
+<!-- ============================================================ -->
+<h2 id="next">10. まだないもの・これから</h2>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Phase</th><th>足すもの</th><th>今の作りへの影響</th></tr></thead>
+<tbody>
+<tr><td>2</td><td>モード（ノーマル・挿入など）とキー配置、キーの経路のデバッグ表示</td><td><code>shortcuts.rs</code> の仮のキーを、純粋なロジックの <code>crates/stroke-keys</code> に置き換える。<code>handle_window_event</code> の振り分けがモードを見るようになる</td></tr>
+<tr><td>3</td><td>ヒント（リンクにラベルを出して選ぶ）</td><td>JS を止めているので、要素の集め方を決め直す必要がある（<code>docs/decisions.md</code>）。ラベルは egui でページの上に重ねて描く予定</td></tr>
+<tr><td>4</td><td>タブと履歴</td><td><code>Engine</code> は今 WebView 1枚だけ。複数の WebView を扱う形に広げる</td></tr>
+<tr><td>5</td><td>エンジンの中へ</td><td>Servo を fork して <code>[patch.crates-io]</code> で差し替える</td></tr>
+<tr><td>6</td><td>仕上げ</td><td><code>show_embedder_control</code> で <code>&lt;select&gt;</code> やダイアログもキーで扱う（今は IME だけ）</td></tr>
+</tbody>
+</table>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="study">11. 自分で確かめる</h2>
+
+<h3>キーとエンジンの通知をログで見る</h3>
+<p><code>RUST_LOG=stroke=debug</code> を付けると、押したキーの行き先と、エンジンからの通知がログに出ます。この資料の2つの流れが、実際にその順で起きることを確かめられます。</p>
+<pre><code>workshop shell
+cd /project
+RUST_LOG=stroke=debug,stroke_engine=debug env -u DISPLAY cargo run -p stroke -- servo.org</code></pre>
+<p>出てくるログの例（形を簡単にしたもの。実際の文言は <code>main.rs</code> と <code>servo_engine.rs</code> の <code>log::debug!</code> を見てください）：</p>
+<pre><code>キー CONTROL Character("l") → OpenLocation
+開く https://example.com/
+読み込み GET https://example.com/ (ページ本体: true, リダイレクト: false)
+エンジン LoadStateChanged(Started)
+エンジン UrlChanged(https://example.com/)
+エンジン TitleChanged(Some("Example Domain"))
+キー (empty) Named(ArrowDown) Pressed → ページ</code></pre>
+
+<h3>単体テストを読む</h3>
+<p>規則とキーの変換は、ウィンドウがなくても確かめられるようにテストにしてあります。テストは「こう動くはず」の一覧として読めます。</p>
+<pre><code>cargo test</code></pre>
+<ul>
+  <li><code>policy.rs</code> のテスト：どの URL を許し、どれを止めるか</li>
+  <li><code>location.rs</code> のテスト：打った文字がどの URL になるか</li>
+  <li><code>shortcuts.rs</code> のテスト：どのキーが外枠の命令で、どれがページに行くか</li>
+  <li><code>keys.rs</code> のテスト：winit のキーが W3C のどのキーになるか</li>
+</ul>
+
+<h3>やってみると理解が深まること</h3>
+<ul class="checklist">
+  <li>☐ <code>shortcuts.rs</code> に新しい命令を1つ足し、<code>main.rs</code> の <code>run_command</code> で処理する（キーの経路の入口）</li>
+  <li>☐ <code>EngineEvent</code> に1つ足し、<code>Delegate</code> で溜めて、外枠で状態表示に出す（通知の経路）</li>
+  <li>☐ <code>http://example.com/</code> を開こうとして、どこで止まるかをログで確かめる（安全の3か所）</li>
+  <li>☐ servoshell の <code>ports/servoshell/desktop/</code> を読み、Stroke と同じところ・違うところを探す</li>
+</ul>
+
+<h3>関連する文書</h3>
+<ul>
+  <li><code>concept.md</code>：なぜ作るか、モードの考え方</li>
+  <li><code>plan.md</code>：Phase ごとの作業と完了条件</li>
+  <li><code>docs/decisions.md</code>：決めたことと理由</li>
+  <li><code>docs/ime.md</code>：日本語入力の仕組み</li>
+  <li><code>docs/dev-environment.md</code>：ビルドと、安全に動かす手順</li>
+  <li><code>vendor/README.md</code>：Servo に入れた手と、確かめたこと</li>
+</ul>
+
+</main>
+</body>
+</html>
